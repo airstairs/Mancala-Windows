@@ -1,0 +1,1019 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mancala for Windows OS</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      background-color: #1a1a1a;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      user-select: none;
+      transition: background-color 0.5s ease;
+    }
+    body.dark-mode {
+      background-color: #000000 !important;
+    }
+    #canvas-container {
+      width: 100vw;
+      height: 100vh;
+      display: block;
+    }
+
+    /* Main UI Overlay in vs Windows Mode */
+    #ui-overlay {
+      position: absolute;
+      top: 20px;
+      left: 20px;
+      color: #fff;
+      text-shadow: 0 2px 4px rgba(0,0,0,0.8);
+      pointer-events: none;
+      z-index: 10;
+      transition: opacity 0.3s ease, visibility 0.3s ease;
+    }
+    h1 {
+      margin: 0 0 5px 0;
+      font-size: 28px;
+      letter-spacing: 1px;
+    }
+    #status {
+      font-size: 18px;
+      font-weight: 600;
+      color: #ffd700;
+      margin-bottom: 10px;
+    }
+    #score-board {
+      font-size: 16px;
+      background: rgba(0, 0, 0, 0.5);
+      padding: 10px 15px;
+      border-radius: 8px;
+      backdrop-filter: blur(5px);
+    }
+
+    /* Controls Container */
+    #controls {
+      position: absolute;
+      bottom: 20px;
+      right: 20px;
+      display: flex;
+      gap: 10px;
+      z-index: 20;
+    }
+    button {
+      background: #0078d4;
+      border: none;
+      color: white;
+      padding: 10px 20px;
+      font-size: 16px;
+      font-weight: bold;
+      border-radius: 5px;
+      cursor: pointer;
+      box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+      transition: background 0.2s, transform 0.1s, opacity 0.3s ease;
+    }
+    button:hover {
+      background: #106ebe;
+      transform: translateY(-2px);
+    }
+    button:active {
+      transform: translateY(0);
+    }
+    button.mode-btn {
+      background: #0078d4;
+    }
+    button.mode-btn:hover {
+      background: #106ebe;
+    }
+
+    /* Flanked Corner Score Cards */
+    .corner-score {
+      position: absolute;
+      padding: 10px 18px;
+      border-radius: 10px;
+      color: #fff;
+      font-weight: bold;
+      font-size: 16px;
+      backdrop-filter: blur(8px);
+      box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+      z-index: 15;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 2px;
+      letter-spacing: 0.5px;
+      transition: opacity 0.3s ease, visibility 0.3s ease, box-shadow 0.3s ease, border-color 0.3s ease;
+    }
+    .corner-score .score-num {
+      font-size: 24px;
+      font-weight: 800;
+    }
+
+    /* Active Player Neon Glow Effect */
+    .corner-score.active-turn {
+      box-shadow: 0 0 20px #00d8ff, 0 0 35px rgba(0, 216, 255, 0.6) !important;
+      border-color: #00d8ff !important;
+    }
+
+    /* Player 2 - Top Right Corner */
+    #p2-corner-score {
+      top: 20px;
+      right: 20px;
+      background: rgba(244, 67, 54, 0.35);
+      border: 2px solid #f44336;
+      transform: rotate(180deg);
+    }
+
+    /* Player 1 - Bottom Left Corner */
+    #p1-corner-score {
+      bottom: 20px;
+      left: 20px;
+      background: rgba(33, 150, 243, 0.35);
+      border: 2px solid #2196f3;
+    }
+
+    /* Hidden Utility Class */
+    .hidden {
+      opacity: 0 !important;
+      pointer-events: none !important;
+      visibility: hidden !important;
+    }
+  </style>
+  <!-- Three.js Library -->
+  <script src="three.min.js"></script>
+</head>
+<body>
+
+  <!-- Center UI Overlay (Shown in vs AI, Hidden in P2 mode) -->
+  <div id="ui-overlay">
+    <h1 id="main-title">3D MANCALA</h1>
+    <div id="status">Player 1 Turn (Bottom Side)</div>
+    <div id="score-board">
+      <span id="p1-label">Player 1 (Store)</span>: <span id="player-score">0</span> | 
+      <span id="p2-label">Windows AI (Store)</span>: <span id="ai-score">0</span>
+    </div>
+  </div>
+
+  <!-- Flanked Corner Scores (Shown ONLY in P2 mode) -->
+  <div id="p2-corner-score" class="corner-score hidden">
+    <span id="p2-corner-label">Player 2</span>
+    <span class="score-num" id="p2-corner-num">0</span>
+  </div>
+
+  <div id="p1-corner-score" class="corner-score hidden">
+    <span>Player 1</span>
+    <span class="score-num" id="p1-corner-num">0</span>
+  </div>
+
+  <!-- Action Controls -->
+  <div id="controls">
+    <button id="mode-toggle-btn" class="mode-btn" onclick="toggleGameMode()">Mode: vs Windows AI</button>
+    <button id="restart-btn" onclick="resetGame()">Restart Game</button>
+  </div>
+
+  <div id="canvas-container"></div>
+
+  <script>
+    let audioCtx = null;
+
+    function initAudio() {
+      if (!audioCtx) {
+        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+        if (AudioContextClass) {
+          audioCtx = new AudioContextClass();
+        }
+      }
+      if (audioCtx && audioCtx.state === 'suspended') {
+        audioCtx.resume();
+      }
+    }
+
+    ['click', 'touchstart', 'mousemove'].forEach(evt => {
+      window.addEventListener(evt, initAudio, { once: false, passive: true });
+    });
+
+    // Synthesize Marble on Wood sound
+    function playMarbleOnWoodSound() {
+      if (!audioCtx) return;
+      const now = audioCtx.currentTime;
+
+      const pitchOffset = (Math.random() - 0.5) * 200;
+      const volumeVar = 0.8 + Math.random() * 0.3;
+
+      const osc = audioCtx.createOscillator();
+      const oscGain = audioCtx.createGain();
+
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(1400 + pitchOffset, now);
+      osc.frequency.exponentialRampToValueAtTime(300, now + 0.04);
+
+      oscGain.gain.setValueAtTime(0.35 * volumeVar, now);
+      oscGain.gain.exponentialRampToValueAtTime(0.001, now + 0.04);
+
+      osc.connect(oscGain);
+      oscGain.connect(audioCtx.destination);
+      osc.start(now);
+      osc.stop(now + 0.04);
+
+      const bufferSize = audioCtx.sampleRate * 0.03;
+      const noiseBuffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+      const output = noiseBuffer.getChannelData(0);
+      for (let i = 0; i < bufferSize; i++) {
+        output[i] = Math.random() * 2 - 1;
+      }
+
+      const noiseSource = audioCtx.createBufferSource();
+      noiseSource.buffer = noiseBuffer;
+
+      const filter = audioCtx.createBiquadFilter();
+      filter.type = 'bandpass';
+      filter.frequency.setValueAtTime(800 + pitchOffset * 0.5, now);
+      filter.Q.setValueAtTime(4.0, now);
+
+      const noiseGain = audioCtx.createGain();
+      noiseGain.gain.setValueAtTime(0.4 * volumeVar, now);
+      noiseGain.gain.exponentialRampToValueAtTime(0.001, now + 0.03);
+
+      noiseSource.connect(filter);
+      filter.connect(noiseGain);
+      noiseGain.connect(audioCtx.destination);
+
+      noiseSource.start(now);
+    }
+
+    // Synthesize Marble on Marble sound
+    function playMarbleOnMarbleSound() {
+      if (!audioCtx) return;
+      const now = audioCtx.currentTime;
+
+      const baseFreq = 3200 + (Math.random() - 0.5) * 500;
+      const volumeVar = 0.7 + Math.random() * 0.3;
+
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(baseFreq, now);
+      osc.frequency.exponentialRampToValueAtTime(1200, now + 0.025);
+
+      gain.gain.setValueAtTime(0.45 * volumeVar, now);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.025);
+
+      const osc2 = audioCtx.createOscillator();
+      const gain2 = audioCtx.createGain();
+      osc2.type = 'triangle';
+      osc2.frequency.setValueAtTime(baseFreq * 1.5, now);
+      osc2.frequency.exponentialRampToValueAtTime(1800, now + 0.02);
+
+      gain2.gain.setValueAtTime(0.25 * volumeVar, now);
+      gain2.gain.exponentialRampToValueAtTime(0.0001, now + 0.02);
+
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      osc2.connect(gain2);
+      gain2.connect(audioCtx.destination);
+
+      osc.start(now);
+      osc.stop(now + 0.025);
+      osc2.start(now);
+      osc2.stop(now + 0.02);
+    }
+
+    function playStoreDepositSound() {
+      if (!audioCtx) return;
+      const now = audioCtx.currentTime;
+
+      const pitchOffset = (Math.random() - 0.5) * 150;
+
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(950 + pitchOffset, now);
+      osc.frequency.exponentialRampToValueAtTime(180, now + 0.08);
+
+      gain.gain.setValueAtTime(0.5, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.08);
+
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      osc.start(now);
+      osc.stop(now + 0.08);
+
+      setTimeout(() => playMarbleOnMarbleSound(), 10);
+    }
+
+    function playPickupCascade(count = 4) {
+      if (!audioCtx) return;
+      const totalClinks = Math.min(Math.max(count, 2), 8);
+      for (let i = 0; i < totalClinks; i++) {
+        setTimeout(() => {
+          if (Math.random() > 0.4) {
+            playMarbleOnMarbleSound();
+          } else {
+            playMarbleOnWoodSound();
+          }
+        }, i * 35 + Math.random() * 15);
+      }
+    }
+
+    let board = [4,4,4,4,4,4, 0, 4,4,4,4,4,4, 0];
+    let isPlayerTurn = true;
+    let isAnimating = false;
+    let isVsAI = true;
+    let isWindowsDarkMode = false;
+
+    // Classic Wood Theme Specs
+    const WOOD_HOLE_COLOR = 0x3d1e0b;
+    const WOOD_BOARD_COLOR = 0x8b4513;
+
+    // Space Gray Metallic Theme Specs
+    const METAL_BOARD_COLOR = 0x333538;
+    const METAL_HOLE_COLOR = 0x18191a;
+
+    const P1_BLUE_COLOR = 0x2196f3;
+    const P2_RED_COLOR = 0xf44336;
+    const WINDOWS_NEON_BLUE_HEX = 0x00d8ff;
+    const WINDOWS_BLUE_STR = "#0078d4";
+    const CHARCOAL_WOOD_STR = "#2a1508";
+    const PURPLE_NEON_HEX = 0xa855f7;
+
+    const BOARD_WIDTH = 17.6;
+    const BOARD_DEPTH = 7.6;
+
+    const container = document.getElementById('canvas-container');
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x1e1e24);
+
+    const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+    
+    const perspectiveCamPos = new THREE.Vector3(0, 14, 12);
+    const perspectiveCamLookAt = new THREE.Vector3(0, 0, 0);
+
+    let topDownCamPos = new THREE.Vector3(0, 18, 0.001);
+    const topDownCamLookAt = new THREE.Vector3(0, 0, 0);
+
+    camera.position.copy(perspectiveCamPos);
+    camera.lookAt(perspectiveCamLookAt);
+
+    let isCameraAnimating = false;
+    let cameraAnimStartTime = 0;
+    const cameraAnimDuration = 800;
+    const startCamPos = new THREE.Vector3();
+    const targetCamPos = new THREE.Vector3();
+    const startCamLookAt = new THREE.Vector3();
+    const targetCamLookAt = new THREE.Vector3();
+    const currentCamLookAt = new THREE.Vector3().copy(perspectiveCamLookAt);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    container.appendChild(renderer.domElement);
+
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+    scene.add(ambientLight);
+
+    const dirLight = new THREE.DirectionalLight(0xffffff, 0.7);
+    dirLight.position.set(10, 20, 10);
+    dirLight.castShadow = true;
+    dirLight.shadow.mapSize.width = 2048;
+    dirLight.shadow.mapSize.height = 2048;
+    scene.add(dirLight);
+
+    // --- PURPLE NEON UNDERGLOW LIGHTS ---
+    const purpleUnderglowLight1 = new THREE.PointLight(PURPLE_NEON_HEX, 0, 22);
+    purpleUnderglowLight1.position.set(-4, -1.1, 0);
+    scene.add(purpleUnderglowLight1);
+
+    const purpleUnderglowLight2 = new THREE.PointLight(PURPLE_NEON_HEX, 0, 22);
+    purpleUnderglowLight2.position.set(4, -1.1, 0);
+    scene.add(purpleUnderglowLight2);
+
+    // Glow Pad mesh placed underneath the board base
+    const glowPadGeo = new THREE.PlaneGeometry(16.5, 6.5);
+    const glowPadMat = new THREE.MeshBasicMaterial({
+      color: PURPLE_NEON_HEX,
+      transparent: true,
+      opacity: 0.0,
+      side: THREE.DoubleSide
+    });
+    const glowPadMesh = new THREE.Mesh(glowPadGeo, glowPadMat);
+    glowPadMesh.rotation.x = Math.PI / 2;
+    glowPadMesh.position.set(0, -1.02, 0);
+    scene.add(glowPadMesh);
+
+    const pitPositions = [];
+    
+    for (let i = 0; i < 6; i++) {
+      pitPositions[i] = new THREE.Vector3((i - 2.5) * 2.2, 0, 2);
+    }
+    pitPositions[6] = new THREE.Vector3(7.2, 0, 0);
+
+    for (let i = 0; i < 6; i++) {
+      pitPositions[7 + i] = new THREE.Vector3((2.5 - i) * 2.2, 0, -2);
+    }
+    pitPositions[13] = new THREE.Vector3(-7.2, 0, 0);
+
+    const boardGroup = new THREE.Group();
+    
+    const boardGeo = new THREE.BoxGeometry(17, 1, 7);
+    const boardMat = new THREE.MeshStandardMaterial({ 
+      color: WOOD_BOARD_COLOR, 
+      roughness: 0.4, 
+      metalness: 0.1 
+    });
+    const boardMesh = new THREE.Mesh(boardGeo, boardMat);
+    boardMesh.position.y = -0.5;
+    boardMesh.receiveShadow = true;
+    boardGroup.add(boardMesh);
+
+    const pitMeshes = [];
+    pitPositions.forEach((pos, idx) => {
+      const isStore = idx === 6 || idx === 13;
+      const radius = isStore ? 1.2 : 0.8;
+      const holeGeo = new THREE.CylinderGeometry(radius, radius, 0.05, 32);
+      
+      const holeMat = new THREE.MeshStandardMaterial({ 
+        color: WOOD_HOLE_COLOR, 
+        roughness: 0.8,
+        metalness: 0.0
+      });
+
+      const pitMesh = new THREE.Mesh(holeGeo, holeMat);
+      pitMesh.position.set(pos.x, 0.02, pos.z);
+      pitMesh.userData = { pitIndex: idx, baseColor: WOOD_HOLE_COLOR };
+      boardGroup.add(pitMesh);
+      pitMeshes.push(pitMesh);
+    });
+
+    // --- WINDOWS LOGO EMBLEM (HTML5 Canvas Texture) ---
+    const windowsCanvas = document.createElement('canvas');
+    windowsCanvas.width = 512;
+    windowsCanvas.height = 512;
+    const ctx = windowsCanvas.getContext('2d');
+
+    let windowsTexture;
+
+    function renderWindowsCanvas() {
+      ctx.clearRect(0, 0, 512, 512);
+      
+      const fillColor = isWindowsDarkMode ? WINDOWS_NEON_BLUE_HEX : CHARCOAL_WOOD_STR;
+
+      if (isWindowsDarkMode) {
+        ctx.shadowColor = "#00d8ff";
+        ctx.shadowBlur = 20;
+      } else {
+        ctx.shadowBlur = 0;
+      }
+
+      ctx.fillStyle = fillColor;
+      
+      // 4 Windows Panes (Perspective grid style)
+      const size = 110;
+      const gap = 16;
+      const cx = 256;
+      const cy = 256;
+
+      // Top-Left Pane
+      ctx.fillRect(cx - size - gap/2, cy - size - gap/2, size, size);
+      // Top-Right Pane
+      ctx.fillRect(cx + gap/2, cy - size - gap/2, size, size);
+      // Bottom-Left Pane
+      ctx.fillRect(cx - size - gap/2, cy + gap/2, size, size);
+      // Bottom-Right Pane
+      ctx.fillRect(cx + gap/2, cy + gap/2, size, size);
+
+      if (windowsTexture) {
+        windowsTexture.needsUpdate = true;
+      }
+    }
+
+    renderWindowsCanvas();
+    windowsTexture = new THREE.CanvasTexture(windowsCanvas);
+
+    const emblemMat = new THREE.MeshStandardMaterial({ 
+        map: windowsTexture, 
+        transparent: true,
+        roughness: 0.5,
+        metalness: 0.2
+    });
+
+    const emblemMesh = new THREE.Mesh(new THREE.PlaneGeometry(3.2, 3.2), emblemMat);
+    emblemMesh.rotation.x = -Math.PI / 2;
+    emblemMesh.position.set(0, 0.01, 0);
+    emblemMesh.userData = { isEmblem: true };
+    boardGroup.add(emblemMesh);
+
+    scene.add(boardGroup);
+
+    const seedMeshes = [];
+    for (let i = 0; i < 14; i++) seedMeshes.push([]);
+
+    const seedGeo = new THREE.SphereGeometry(0.22, 16, 16);
+    const seedColors = [0xe74c3c, 0x3498db, 0x2ecc71, 0xf1c40f, 0x9b59b6];
+
+    function createSeed(pitIdx) {
+      const randomColor = seedColors[Math.floor(Math.random() * seedColors.length)];
+
+      const seedMat = new THREE.MeshStandardMaterial({
+        color: isWindowsDarkMode ? WINDOWS_NEON_BLUE_HEX : randomColor,
+        emissive: isWindowsDarkMode ? WINDOWS_NEON_BLUE_HEX : 0x000000,
+        emissiveIntensity: isWindowsDarkMode ? 0.7 : 0.0,
+        roughness: isWindowsDarkMode ? 0.1 : 0.2,
+        metalness: isWindowsDarkMode ? 0.8 : 0.3
+      });
+
+      const seed = new THREE.Mesh(seedGeo, seedMat);
+      seed.userData = { originalColor: randomColor };
+      seed.castShadow = true;
+      seed.receiveShadow = true;
+      placeSeedInPit(seed, pitIdx, seedMeshes[pitIdx].length);
+      scene.add(seed);
+      seedMeshes[pitIdx].push(seed);
+    }
+
+    function placeSeedInPit(seedMesh, pitIdx, stackIndex) {
+      const center = pitPositions[pitIdx];
+      const isStore = pitIdx === 6 || pitIdx === 13;
+      const spread = isStore ? 0.7 : 0.4;
+      
+      const angle = stackIndex * 2.4;
+      const r = Math.sqrt(stackIndex + 0.5) * (spread / 3);
+      
+      const offsetX = Math.cos(angle) * r;
+      const offsetZ = Math.sin(angle) * r;
+      const offsetY = 0.2 + (Math.floor(stackIndex / 6) * 0.15);
+
+      seedMesh.position.set(center.x + offsetX, offsetY, center.z + offsetZ);
+    }
+
+    function updateAllSeedStyles() {
+      for (let i = 0; i < 14; i++) {
+        seedMeshes[i].forEach(seed => {
+          if (isWindowsDarkMode) {
+            seed.material.color.setHex(WINDOWS_NEON_BLUE_HEX);
+            seed.material.emissive.setHex(WINDOWS_NEON_BLUE_HEX);
+            seed.material.emissiveIntensity = 0.7;
+            seed.material.metalness = 0.8;
+            seed.material.roughness = 0.1;
+          } else {
+            seed.material.color.setHex(seed.userData.originalColor || seedColors[0]);
+            seed.material.emissive.setHex(0x000000);
+            seed.material.emissiveIntensity = 0.0;
+            seed.material.metalness = 0.3;
+            seed.material.roughness = 0.2;
+          }
+        });
+      }
+    }
+
+    function updateTurnHighlightUI() {
+      const p1Corner = document.getElementById('p1-corner-score');
+      const p2Corner = document.getElementById('p2-corner-score');
+
+      if (!isVsAI) {
+        if (isPlayerTurn) {
+          p1Corner.classList.add('active-turn');
+          p2Corner.classList.remove('active-turn');
+        } else {
+          p2Corner.classList.add('active-turn');
+          p1Corner.classList.remove('active-turn');
+        }
+      } else {
+        p1Corner.classList.remove('active-turn');
+        p2Corner.classList.remove('active-turn');
+      }
+    }
+
+    function toggleWindowsDarkMode() {
+      isWindowsDarkMode = !isWindowsDarkMode;
+
+      document.body.classList.toggle('dark-mode', isWindowsDarkMode);
+      scene.background.setHex(isWindowsDarkMode ? 0x000000 : 0x1e1e24);
+
+      // Space Gray Metallic Board vs Classic Wood
+      if (isWindowsDarkMode) {
+        boardMat.color.setHex(METAL_BOARD_COLOR);
+        boardMat.metalness = 0.85;
+        boardMat.roughness = 0.2;
+
+        purpleUnderglowLight1.intensity = 4.5;
+        purpleUnderglowLight2.intensity = 4.5;
+        glowPadMat.opacity = 0.85;
+      } else {
+        boardMat.color.setHex(WOOD_BOARD_COLOR);
+        boardMat.metalness = 0.1;
+        boardMat.roughness = 0.4;
+
+        purpleUnderglowLight1.intensity = 0.0;
+        purpleUnderglowLight2.intensity = 0.0;
+        glowPadMat.opacity = 0.0;
+      }
+
+      updateStoreMeshColors();
+      renderWindowsCanvas();
+      updateAllSeedStyles();
+      updateTurnHighlightUI();
+    }
+
+    function initSeeds() {
+      for (let i = 0; i < 14; i++) {
+        seedMeshes[i].forEach(s => scene.remove(s));
+        seedMeshes[i] = [];
+      }
+      for (let i = 0; i < 14; i++) {
+        for (let s = 0; s < board[i]; s++) {
+          createSeed(i);
+        }
+      }
+    }
+
+    initSeeds();
+
+    function getFitDistanceForTopDown() {
+      const aspect = window.innerWidth / window.innerHeight;
+      const vFOV = THREE.MathUtils.degToRad(camera.fov);
+      
+      const distVert = (BOARD_DEPTH / 2) / Math.tan(vFOV / 2);
+      const distHoriz = (BOARD_WIDTH / 2) / (Math.tan(vFOV / 2) * aspect);
+      
+      return Math.max(distVert, distHoriz) * 1.02;
+    }
+
+    function updateTopDownCameraPosition() {
+      const dist = getFitDistanceForTopDown();
+      topDownCamPos.set(0, dist, 0.001);
+    }
+
+    const raycaster = new THREE.Raycaster();
+    const mouse = new THREE.Vector2();
+    let hoveredPitIndex = -1;
+    let isHoveringEmblem = false;
+
+    window.addEventListener('mousemove', (e) => {
+      mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+      mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+
+      raycaster.setFromCamera(mouse, camera);
+
+      // Precise Emblem Hit Detection
+      const emblemIntersects = raycaster.intersectObject(emblemMesh);
+      if (emblemIntersects.length > 0) {
+        const hitPoint = emblemIntersects[0].point;
+        const distToCenter = Math.hypot(hitPoint.x - emblemMesh.position.x, hitPoint.z - emblemMesh.position.z);
+        
+        // Trigger if click falls within the Windows logo bounds (~1.6 units)
+        isHoveringEmblem = distToCenter < 1.6;
+      } else {
+        isHoveringEmblem = false;
+      }
+
+      if ((isVsAI && !isPlayerTurn) || isAnimating) return;
+
+      const intersects = raycaster.intersectObjects(pitMeshes);
+
+      if (hoveredPitIndex >= 0 && hoveredPitIndex < 14) {
+        pitMeshes[hoveredPitIndex].material.color.setHex(pitMeshes[hoveredPitIndex].userData.baseColor);
+      }
+      hoveredPitIndex = -1;
+
+      if (intersects.length > 0) {
+        const idx = intersects[0].object.userData.pitIndex;
+        
+        const isValidP1Move = isPlayerTurn && idx >= 0 && idx <= 5 && board[idx] > 0;
+        const isValidP2Move = !isPlayerTurn && !isVsAI && idx >= 7 && idx <= 12 && board[idx] > 0;
+
+        if (isValidP1Move || isValidP2Move) {
+          hoveredPitIndex = idx;
+          pitMeshes[idx].material.color.setHex(isWindowsDarkMode ? WINDOWS_NEON_BLUE_HEX : 0x8e44ad);
+        }
+      }
+    });
+
+    window.addEventListener('click', () => {
+      if (isHoveringEmblem) {
+        toggleWindowsDarkMode();
+        return;
+      }
+
+      if (isAnimating) return;
+      if (isVsAI && !isPlayerTurn) return;
+
+      if (hoveredPitIndex !== -1) {
+        executeMove(hoveredPitIndex);
+      }
+    });
+
+    function updateStoreMeshColors() {
+      const defaultHoleColor = isWindowsDarkMode ? METAL_HOLE_COLOR : WOOD_HOLE_COLOR;
+
+      pitMeshes.forEach((mesh, idx) => {
+        if (idx !== 6 && idx !== 13) {
+          mesh.userData.baseColor = defaultHoleColor;
+          mesh.material.color.setHex(defaultHoleColor);
+          mesh.material.metalness = isWindowsDarkMode ? 0.7 : 0.0;
+          mesh.material.roughness = isWindowsDarkMode ? 0.3 : 0.8;
+        }
+      });
+
+      if (isVsAI) {
+        pitMeshes[6].userData.baseColor = defaultHoleColor;
+        pitMeshes[6].material.color.setHex(defaultHoleColor);
+        pitMeshes[13].userData.baseColor = defaultHoleColor;
+        pitMeshes[13].material.color.setHex(defaultHoleColor);
+      } else {
+        const p1Color = isWindowsDarkMode ? WINDOWS_NEON_BLUE_HEX : P1_BLUE_COLOR;
+        const p2Color = isWindowsDarkMode ? WINDOWS_NEON_BLUE_HEX : P2_RED_COLOR;
+
+        pitMeshes[6].userData.baseColor = p1Color;
+        pitMeshes[6].material.color.setHex(p1Color);
+        pitMeshes[13].userData.baseColor = p2Color;
+        pitMeshes[13].material.color.setHex(p2Color);
+      }
+    }
+
+    function toggleGameMode() {
+      if (isAnimating) return;
+
+      isVsAI = !isVsAI;
+      const toggleBtn = document.getElementById('mode-toggle-btn');
+      const restartBtn = document.getElementById('restart-btn');
+      const uiOverlay = document.getElementById('ui-overlay');
+      const p1CornerScore = document.getElementById('p1-corner-score');
+      const p2CornerScore = document.getElementById('p2-corner-score');
+
+      updateTopDownCameraPosition();
+      updateStoreMeshColors();
+
+      startCamPos.copy(camera.position);
+      startCamLookAt.copy(currentCamLookAt);
+
+      if (isVsAI) {
+        toggleBtn.innerText = "Mode: vs Windows AI";
+        
+        uiOverlay.classList.remove('hidden');
+        restartBtn.classList.remove('hidden');
+
+        p1CornerScore.classList.add('hidden');
+        p2CornerScore.classList.add('hidden');
+
+        targetCamPos.copy(perspectiveCamPos);
+        targetCamLookAt.copy(perspectiveCamLookAt);
+      } else {
+        toggleBtn.innerText = "Mode: vs Player 2";
+        
+        uiOverlay.classList.add('hidden');
+        restartBtn.classList.add('hidden');
+
+        p1CornerScore.classList.remove('hidden');
+        p2CornerScore.classList.remove('hidden');
+
+        targetCamPos.copy(topDownCamPos);
+        targetCamLookAt.copy(topDownCamLookAt);
+      }
+
+      updateTurnHighlightUI();
+
+      isCameraAnimating = true;
+      cameraAnimStartTime = performance.now();
+
+      resetGame();
+    }
+
+    async function executeMove(startPit) {
+      isAnimating = true;
+      
+      const p2TurnText = isVsAI ? "AI thinking..." : "Player 2 Turn (Top Side)";
+      document.getElementById('status').innerText = isPlayerTurn ? "Distributing seeds..." : p2TurnText;
+
+      let seedsToSow = board[startPit];
+      board[startPit] = 0;
+
+      playPickupCascade(seedsToSow);
+
+      const pickedSeeds = seedMeshes[startPit];
+      seedMeshes[startPit] = [];
+      
+      let currPit = startPit;
+
+      for (let i = 0; i < seedsToSow; i++) {
+        currPit = (currPit + 1) % 14;
+        
+        if (isPlayerTurn && currPit === 13) currPit = (currPit + 1) % 14;
+        if (!isPlayerTurn && currPit === 6) currPit = (currPit + 1) % 14;
+
+        board[currPit]++;
+        const seedToMove = pickedSeeds.pop();
+        seedMeshes[currPit].push(seedToMove);
+
+        await animateSeedToPit(seedToMove, currPit, seedMeshes[currPit].length - 1);
+      }
+
+      const isPlayerSide = isPlayerTurn && currPit >= 0 && currPit <= 5;
+      const isP2Side = !isPlayerTurn && currPit >= 7 && currPit <= 12;
+
+      if ((isPlayerSide || isP2Side) && board[currPit] === 1) {
+        const oppositePit = 12 - currPit;
+        if (board[oppositePit] > 0) {
+          const targetStore = isPlayerTurn ? 6 : 13;
+          board[targetStore] += board[oppositePit] + 1;
+          board[oppositePit] = 0;
+          board[currPit] = 0;
+
+          const captured = [...seedMeshes[oppositePit], ...seedMeshes[currPit]];
+          seedMeshes[oppositePit] = [];
+          seedMeshes[currPit] = [];
+
+          playPickupCascade(captured.length);
+
+          for (const s of captured) {
+            seedMeshes[targetStore].push(s);
+            await animateSeedToPit(s, targetStore, seedMeshes[targetStore].length - 1);
+          }
+        }
+      }
+
+      updateScores();
+
+      if (checkGameOver()) {
+        isAnimating = false;
+        return;
+      }
+
+      const extraTurn = (isPlayerTurn && currPit === 6) || (!isPlayerTurn && currPit === 13);
+
+      if (!extraTurn) {
+        isPlayerTurn = !isPlayerTurn;
+      }
+
+      updateTurnHighlightUI();
+      isAnimating = false;
+
+      if (!isPlayerTurn && isVsAI) {
+        document.getElementById('status').innerText = "AI Turn...";
+        setTimeout(triggerAIMove, 800);
+      } else {
+        const nextPlayerText = isPlayerTurn ? "Player 1 Turn (Bottom Side)" : "Player 2 Turn (Top Side)";
+        document.getElementById('status').innerText = extraTurn ? "Extra Turn! Click your pit." : nextPlayerText;
+      }
+    }
+
+    function animateSeedToPit(seed, pitIdx, stackIdx) {
+      return new Promise((resolve) => {
+        const targetPos = new THREE.Vector3();
+        const center = pitPositions[pitIdx];
+        const isStore = pitIdx === 6 || pitIdx === 13;
+        const spread = isStore ? 0.7 : 0.4;
+        const angle = stackIdx * 2.4;
+        const r = Math.sqrt(stackIdx + 0.5) * (spread / 3);
+
+        targetPos.x = center.x + Math.cos(angle) * r;
+        targetPos.z = center.z + Math.sin(angle) * r;
+        targetPos.y = 0.2 + (Math.floor(stackIdx / 6) * 0.15);
+
+        const startPos = seed.position.clone();
+        const duration = 200;
+        const startTime = performance.now();
+
+        function step(now) {
+          const elapsed = now - startTime;
+          const progress = Math.min(elapsed / duration, 1);
+          
+          seed.position.lerpVectors(startPos, targetPos, progress);
+          seed.position.y += Math.sin(progress * Math.PI) * 1.5;
+
+          if (progress < 1) {
+            requestAnimationFrame(step);
+          } else {
+            seed.position.copy(targetPos);
+
+            if (isStore) {
+              playStoreDepositSound();
+            } else if (stackIdx > 0) {
+              if (Math.random() < 0.75) {
+                playMarbleOnMarbleSound();
+              } else {
+                playMarbleOnWoodSound();
+              }
+            } else {
+              playMarbleOnWoodSound();
+            }
+
+            resolve();
+          }
+        }
+        requestAnimationFrame(step);
+      });
+    }
+
+    function triggerAIMove() {
+      if (!isVsAI) return;
+
+      const validPits = [];
+      for (let i = 7; i <= 12; i++) {
+        if (board[i] > 0) validPits.push(i);
+      }
+
+      if (validPits.length === 0) return;
+
+      for (let pit of validPits) {
+        if ((pit + board[pit]) % 14 === 13) {
+          executeMove(pit);
+          return;
+        }
+      }
+
+      const choice = validPits[Math.floor(Math.random() * validPits.length)];
+      executeMove(choice);
+    }
+
+    function updateScores() {
+      const p1Score = board[6];
+      const p2Score = board[13];
+
+      document.getElementById('player-score').innerText = p1Score;
+      document.getElementById('ai-score').innerText = p2Score;
+
+      document.getElementById('p1-corner-num').innerText = p1Score;
+      document.getElementById('p2-corner-num').innerText = p2Score;
+    }
+
+    function checkGameOver() {
+      const p1Empty = board.slice(0, 6).every(seeds => seeds === 0);
+      const p2Empty = board.slice(7, 13).every(seeds => seeds === 0);
+
+      if (p1Empty || p2Empty) {
+        for (let i = 0; i < 6; i++) {
+          board[6] += board[i];
+          board[i] = 0;
+        }
+        for (let i = 7; i <= 12; i++) {
+          board[13] += board[i];
+          board[i] = 0;
+        }
+
+        updateScores();
+
+        const p2Name = isVsAI ? "AI" : "Player 2";
+        let winnerText = "";
+        if (board[6] > board[13]) winnerText = "Game Over - Player 1 Wins!";
+        else if (board[13] > board[6]) winnerText = `Game Over - ${p2Name} Wins!`;
+        else winnerText = "Game Over - It's a Tie!";
+
+        document.getElementById('status').innerText = winnerText;
+        
+        document.getElementById('ui-overlay').classList.remove('hidden');
+        return true;
+      }
+      return false;
+    }
+
+    function resetGame() {
+      board = [4,4,4,4,4,4, 0, 4,4,4,4,4,4, 0];
+      isPlayerTurn = true;
+      isAnimating = false;
+      updateScores();
+      initSeeds();
+      updateTurnHighlightUI();
+      document.getElementById('status').innerText = "Player 1 Turn (Bottom Side)";
+    }
+
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+
+      updateTopDownCameraPosition();
+      if (!isVsAI && !isCameraAnimating) {
+        camera.position.copy(topDownCamPos);
+      }
+    });
+
+    function animate(now) {
+      requestAnimationFrame(animate);
+
+      if (isCameraAnimating) {
+        const elapsed = now - cameraAnimStartTime;
+        let progress = Math.min(elapsed / cameraAnimDuration, 1);
+        
+        progress = progress * progress * (3 - 2 * progress);
+
+        camera.position.lerpVectors(startCamPos, targetCamPos, progress);
+        currentCamLookAt.lerpVectors(startCamLookAt, targetCamLookAt, progress);
+        camera.lookAt(currentCamLookAt);
+
+        if (progress >= 1) {
+          isCameraAnimating = false;
+        }
+      }
+
+      renderer.render(scene, camera);
+    }
+
+    animate(performance.now());
+  </script>
+</body>
+</html>
